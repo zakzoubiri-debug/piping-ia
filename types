@@ -1,0 +1,111 @@
+// Core domain types for EngHub - Smart Line Builder
+
+export type ComponentCategory =
+  | "Equipment"
+  | "Valves"
+  | "Fittings"
+  | "Instruments"
+  | "Utilities";
+
+export type ConnectionType =
+  | "Flanged"
+  | "Butt Weld"
+  | "Socket Weld"
+  | "Threaded"
+  | "Wafer";
+
+export type Severity = "Critical" | "Warning" | "Information" | "Passed";
+
+/** A component as it appears in the library / sidebar (a template, not an instance). */
+export interface ComponentDefinition {
+  typeId: string;
+  name: string;
+  category: ComponentCategory;
+  icon: string;
+  tagPrefix: string;
+  defaultConnectionType: ConnectionType;
+  isIsolationValve?: boolean;
+}
+
+/** A component instance placed on the piping line canvas. */
+export interface LineComponent {
+  instanceId: string;
+  typeId: string;
+  name: string;
+  category: ComponentCategory;
+  icon: string;
+  tag: string;
+  connectionType: ConnectionType;
+  size: string;
+  pressureClass: string;
+  manufacturer: string;
+  notes: string;
+  isIsolationValve?: boolean;
+}
+
+/** A small accessory node auto-generated around flanged connections (pipe/flange/gasket). */
+export interface ConnectionAccessory {
+  id: string;
+  label: string;
+  kind: "Pipe" | "Flange" | "Gasket";
+}
+
+export interface LineData {
+  lineNumber: string;
+  fromEquipment: string;
+  toEquipment: string;
+  fluid: string;
+  pipeSpec: string;
+  nominalDiameter: string;
+  pressure: string;
+  temperature: string;
+  lineLength: string;
+  insulation: "Yes" | "No";
+}
+
+export interface EngineeringRule {
+  id: string;
+  severity: Exclude<Severity, "Passed">;
+  message: string;
+  reason: string;
+  action: string;
+}
+
+export interface AnalysisResult {
+  ruleId: string;
+  severity: Severity;
+  message: string;
+  relatedComponent: string;
+  reason: string;
+  action: string;
+}
+
+export interface AnalysisSummary {
+  totalChecks: number;
+  critical: number;
+  warnings: number;
+  information: number;
+  passed: number;
+  overallStatus: "Approved" | "Review Required" | "Critical Issues";
+  generatedAt: string;
+}
+
+export interface AnalysisState {
+  results: AnalysisResult[];
+  summary: AnalysisSummary;
+}
+
+export interface ExportPayload {
+  lineData: LineData;
+  components: LineComponent[];
+  analysis: AnalysisState | null;
+  exportDate: string;
+}
+
+export type ToastVariant = "success" | "error" | "info";
+
+export interface ToastMessage {
+  id: string;
+  text: string;
+  variant: ToastVariant;
+}
