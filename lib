@@ -1,0 +1,644 @@
+import {
+  AnalysisResult,
+  AnalysisState,
+  LineComponent,
+  LineData,
+} from "@/types/engineering";
+import { ENGINEERING_RULES } from "./engineering-rules";
+
+function parseNumber(value: string): number | null {
+  const match = value.match(/-?\d+(\.\d+)?/);
+  if (!match) return null;
+  return parseFloat(match[0]);
+}
+
+function passResult(
+  ruleId: string,
+  message: string,
+  reason: string
+): AnalysisResult {
+  return {
+    ruleId,
+    severity: "Passed",
+    message,
+    relatedComponent: "—",
+    reason,
+    action: "No action required at this time.",
+  };
+}
+
+function triggerResult(
+  ruleId: string,
+  relatedComponent: string
+): AnalysisResult {
+  const rule = ENGINEERING_RULES[ruleId];
+  return {
+    ruleId,
+    severity: rule.severity,
+    message: rule.message,
+    relatedComponent,
+    reason: rule.reason,
+    action: rule.action,
+  };
+}
+
+/**
+ * Runs the full set of preliminary design checks against the current line.
+ * These checks are intentionally simple and are meant to flag items for
+ * engineering review, not to replace one.
+ */
+export function analyzeLine(
+  lineData: LineData,
+  components: LineComponent[]
+): AnalysisState {
+  const results: AnalysisResult[] = [];
+
+  // Rule 1: pump present, check valve must follow it somewhere downstream
+  const pumpIndex = components.findIndex((c) => c.typeId === "pump");
+  if (pumpIndex !== -1) {
+    const hasCheckValveAfter = components
+      .slice(pumpIndex + 1)
+      .some((c) => c.typeId === "check-valve");
+    const pumpTag = components[pumpIndex].tag;
+    if (!hasCheckValveAfter) {
+      results.push(triggerResult("rule-1-check-valve", pumpTag));
+    } else {
+      results.push(
+        passResult(
+          "rule-1-check-valve",
+          "A check valve was found downstream of the pump discharge.",
+          "Reverse-flow protection appears to be in place for this pump."
+        )
+      );
+    }
+  }
+
+  // Rule 2: flow meter present
+  const flowMeter = components.find((c) => c.typeId === "flow-meter");
+  if (flowMeter) {
+    results.push(triggerResult("rule-2-flow-meter", flowMeter.tag));
+  } else {
+    results.push(
+      passResult(
+        "rule-2-flow-meter",
+        "No flow meter present on this line.",
+        "Straight-length requirements are not applicable without a flow meter."
+      )
+    );
+  }
+
+  // Rule 3 & 4: control valve isolation
+  const controlValveIndex = components.findIndex(
+    (c) => c.typeId === "control-valve"
+  );
+  if (controlValveIndex !== -1) {
+    const cvTag = components[controlValveIndex].tag;
+    const hasUpstreamIsolation = components
+      .slice(0, controlValveIndex)
+      .some((c) => c.isIsolationValve);
+    const hasDownstreamIsolation = components
+      .slice(controlValveIndex + 1)
+      .some((c) => c.isIsolationValve);
+
+    if (!hasUpstreamIsolation) {
+      results.push(triggerResult("rule-3-cv-upstream-isolation", cvTag));
+    } else {
+      results.push(
+        passResult(
+          "rule-3-cv-upstream-isolation",
+          "An upstream isolation valve was found for the control valve.",
+          "The control valve can be isolated from the upstream side for maintenance."
+        )
+      );
+    }
+
+    if (!hasDownstreamIsolation) {
+      results.push(triggerResult("rule-4-cv-downstream-isolation", cvTag));
+    } else {
+      results.push(
+        passResult(
+          "rule-4-cv-downstream-isolation",
+          "A downstream isolation valve was found for the control valve.",
+          "The control valve can be isolated from the downstream side for maintenance."
+        )
+      );
+    }
+  }
+
+  // Rule 5: temperature check
+  const temperature = parseNumber(lineData.temperature);
+  if (temperature !== null && temperature > 120) {
+    results.push(triggerResult("rule-5-thermal-expansion", lineData.lineNumber));
+  } else {
+    results.push(
+      passResult(
+        "rule-5-thermal-expansion",
+        "Operating temperature is at or below 120 °C.",
+        "Thermal growth is less likely to be a governing concern at this temperature."
+      )
+    );
+  }
+
+  // Rule 6: line length check
+  const length = parseNumber(lineData.lineLength);
+  if (length !== null && length > 15) {
+    results.push(triggerResult("rule-6-support-spacing", lineData.lineNumber));
+  } else {
+    results.push(
+      passResult(
+        "rule-6-support-spacing",
+        "Line length is at or below 15 metres.",
+        "Support spacing is less likely to be a governing concern at this length."
+      )
+    );
+  }
+
+  // Rule 7: concentric reducer on pump suction (upstream of the pump)
+  if (pumpIndex > 0) {
+    const suctionReducer = components
+      .slice(0, pumpIndex)
+      .find((c) => c.typeId === "concentric-reducer");
+    if (suctionReducer) {
+      results.push(
+        triggerResult("rule-7-suction-reducer", suctionReducer.tag)
+      );
+    } else {
+      results.push(
+        passResult(
+          "rule-7-suction-reducer",
+          "No concentric reducer found on the pump suction line.",
+          "Vapour-pocket risk from a concentric suction reducer does not apply here."
+        )
+      );
+    }
+  }
+
+  // Rule 8: PSV present
+  const psv = components.find((c) => c.typeId === "psv");
+  if (psv) {
+    results.push(triggerResult("rule-8-psv", psv.tag));
+  } else {
+    results.push(
+      passResult(
+        "rule-8-psv",
+        "No PSV present on this line.",
+        "Discharge routing and back-pressure checks are not applicable without a PSV."
+      )
+    );
+  }
+
+  // Rule 9: drain present
+  const drain = components.find((c) => c.typeId === "drain");
+  if (!drain) {
+    results.push(triggerResult("rule-9-drain", lineData.lineNumber));
+  } else {
+    results.push(
+      passResult(
+        "rule-9-drain",
+        "A drain is present on this line.",
+        "Low-point drainage has already been considered."
+      )
+    );
+  }
+
+  // Rule 10: vent present
+  const vent = components.find((c) => c.typeId === "vent");
+  if (!vent) {
+    results.push(triggerResult("rule-10-vent", lineData.lineNumber));
+  } else {
+    results.push(
+      passResult(
+        "rule-10-vent",
+        "A vent is present on this line.",
+        "High-point venting has already been considered."
+      )
+    );
+  }
+
+  const critical = results.filter((r) => r.severity === "Critical").length;
+  const warnings = results.filter((r) => r.severity === "Warning").length;
+  const information = results.filter(
+    (r) => r.severity === "Information"
+  ).length;
+  const passed = results.filter((r) => r.severity === "Passed").length;
+
+  let overallStatus: "Approved" | "Review Required" | "Critical Issues" =
+    "Approved";
+  if (critical > 0) {
+    overallStatus = "Critical Issues";
+  } else if (warnings > 0) {
+    overallStatus = "Review Required";
+  }
+
+  return {
+    results,
+    summary: {
+      totalChecks: results.length,
+      critical,
+      warnings,
+      information,
+      passed,
+      overallStatus,
+      generatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+import { ComponentDefinition } from "@/types/engineering";
+
+// Preliminary design library. Icons are short glyphs, not brand or standard artwork.
+export const COMPONENT_LIBRARY: ComponentDefinition[] = [
+  // Equipment
+  {
+    typeId: "pump",
+    name: "Pump",
+    category: "Equipment",
+    icon: "⚙",
+    tagPrefix: "P",
+    defaultConnectionType: "Flanged",
+  },
+  {
+    typeId: "heat-exchanger",
+    name: "Heat Exchanger",
+    category: "Equipment",
+    icon: "▤",
+    tagPrefix: "E",
+    defaultConnectionType: "Flanged",
+  },
+  {
+    typeId: "vessel",
+    name: "Vessel",
+    category: "Equipment",
+    icon: "▧",
+    tagPrefix: "V",
+    defaultConnectionType: "Flanged",
+  },
+
+  // Valves
+  {
+    typeId: "gate-valve",
+    name: "Gate Valve",
+    category: "Valves",
+    icon: "⋈",
+    tagPrefix: "XV",
+    defaultConnectionType: "Flanged",
+    isIsolationValve: true,
+  },
+  {
+    typeId: "ball-valve",
+    name: "Ball Valve",
+    category: "Valves",
+    icon: "◍",
+    tagPrefix: "BV",
+    defaultConnectionType: "Flanged",
+    isIsolationValve: true,
+  },
+  {
+    typeId: "globe-valve",
+    name: "Globe Valve",
+    category: "Valves",
+    icon: "◐",
+    tagPrefix: "GV",
+    defaultConnectionType: "Flanged",
+    isIsolationValve: true,
+  },
+  {
+    typeId: "check-valve",
+    name: "Check Valve",
+    category: "Valves",
+    icon: "◁",
+    tagPrefix: "NRV",
+    defaultConnectionType: "Flanged",
+  },
+  {
+    typeId: "control-valve",
+    name: "Control Valve",
+    category: "Valves",
+    icon: "◈",
+    tagPrefix: "FCV",
+    defaultConnectionType: "Flanged",
+  },
+  {
+    typeId: "butterfly-valve",
+    name: "Butterfly Valve",
+    category: "Valves",
+    icon: "◑",
+    tagPrefix: "BFV",
+    defaultConnectionType: "Wafer",
+    isIsolationValve: true,
+  },
+  {
+    typeId: "psv",
+    name: "PSV",
+    category: "Valves",
+    icon: "▲",
+    tagPrefix: "PSV",
+    defaultConnectionType: "Flanged",
+  },
+
+  // Fittings
+  {
+    typeId: "elbow-90",
+    name: "Elbow 90°",
+    category: "Fittings",
+    icon: "⌐",
+    tagPrefix: "EL90",
+    defaultConnectionType: "Butt Weld",
+  },
+  {
+    typeId: "elbow-45",
+    name: "Elbow 45°",
+    category: "Fittings",
+    icon: "⌐",
+    tagPrefix: "EL45",
+    defaultConnectionType: "Butt Weld",
+  },
+  {
+    typeId: "tee",
+    name: "Tee",
+    category: "Fittings",
+    icon: "┬",
+    tagPrefix: "TEE",
+    defaultConnectionType: "Butt Weld",
+  },
+  {
+    typeId: "concentric-reducer",
+    name: "Concentric Reducer",
+    category: "Fittings",
+    icon: "▽",
+    tagPrefix: "RED",
+    defaultConnectionType: "Butt Weld",
+  },
+  {
+    typeId: "eccentric-reducer",
+    name: "Eccentric Reducer",
+    category: "Fittings",
+    icon: "▷",
+    tagPrefix: "ECC",
+    defaultConnectionType: "Butt Weld",
+  },
+  {
+    typeId: "blind-flange",
+    name: "Blind Flange",
+    category: "Fittings",
+    icon: "●",
+    tagPrefix: "BLF",
+    defaultConnectionType: "Flanged",
+  },
+
+  // Instruments
+  {
+    typeId: "flow-meter",
+    name: "Flow Meter",
+    category: "Instruments",
+    icon: "Ⓕ",
+    tagPrefix: "FT",
+    defaultConnectionType: "Flanged",
+  },
+  {
+    typeId: "pressure-gauge",
+    name: "Pressure Gauge",
+    category: "Instruments",
+    icon: "Ⓟ",
+    tagPrefix: "PI",
+    defaultConnectionType: "Threaded",
+  },
+  {
+    typeId: "temperature-gauge",
+    name: "Temperature Gauge",
+    category: "Instruments",
+    icon: "Ⓣ",
+    tagPrefix: "TI",
+    defaultConnectionType: "Threaded",
+  },
+  {
+    typeId: "strainer",
+    name: "Strainer",
+    category: "Instruments",
+    icon: "▩",
+    tagPrefix: "STR",
+    defaultConnectionType: "Flanged",
+  },
+
+  // Utilities
+  {
+    typeId: "drain",
+    name: "Drain",
+    category: "Utilities",
+    icon: "▼",
+    tagPrefix: "DR",
+    defaultConnectionType: "Threaded",
+  },
+  {
+    typeId: "vent",
+    name: "Vent",
+    category: "Utilities",
+    icon: "▲",
+    tagPrefix: "VT",
+    defaultConnectionType: "Threaded",
+  },
+  {
+    typeId: "pipe-support",
+    name: "Pipe Support",
+    category: "Utilities",
+    icon: "⊥",
+    tagPrefix: "PS",
+    defaultConnectionType: "Butt Weld",
+  },
+];
+
+export const CATEGORY_ORDER: ComponentDefinition["category"][] = [
+  "Equipment",
+  "Valves",
+  "Fittings",
+  "Instruments",
+  "Utilities",
+];
+
+export function getDefinition(typeId: string): ComponentDefinition | undefined {
+  return COMPONENT_LIBRARY.find((c) => c.typeId === typeId);
+}
+
+import { EngineeringRule } from "@/types/engineering";
+
+/**
+ * These are preliminary design checks intended to prompt review during early
+ * line development. They are not certified calculations and do not replace
+ * a qualified engineering review against project specifications and
+ * applicable codes.
+ */
+export const ENGINEERING_RULES: Record<string, EngineeringRule> = {
+  "rule-1-check-valve": {
+    id: "rule-1-check-valve",
+    severity: "Critical",
+    message:
+      "Install a check valve on the pump discharge to reduce reverse-flow risk.",
+    reason:
+      "A pump discharge without a check valve can allow reverse flow through the pump when it stops or trips.",
+    action: "Add a check valve immediately downstream of the pump discharge.",
+  },
+  "rule-2-flow-meter": {
+    id: "rule-2-flow-meter",
+    severity: "Warning",
+    message:
+      "Verify the upstream and downstream straight-length requirements using the selected meter manufacturer's data.",
+    reason:
+      "Flow meters typically require minimum straight pipe runs on both sides to achieve rated accuracy.",
+    action:
+      "Confirm upstream/downstream straight lengths against the manufacturer's installation data sheet.",
+  },
+  "rule-3-cv-upstream-isolation": {
+    id: "rule-3-cv-upstream-isolation",
+    severity: "Warning",
+    message: "Consider an upstream isolation valve for maintenance.",
+    reason:
+      "Without an upstream isolation valve, the control valve cannot be isolated for maintenance without shutting down the wider line.",
+    action:
+      "Add an isolation valve (gate, ball, globe or butterfly) upstream of the control valve.",
+  },
+  "rule-4-cv-downstream-isolation": {
+    id: "rule-4-cv-downstream-isolation",
+    severity: "Warning",
+    message: "Consider a downstream isolation valve for maintenance.",
+    reason:
+      "Without a downstream isolation valve, maintenance on the control valve may require draining or isolating a larger section of line.",
+    action:
+      "Add an isolation valve (gate, ball, globe or butterfly) downstream of the control valve.",
+  },
+  "rule-5-thermal-expansion": {
+    id: "rule-5-thermal-expansion",
+    severity: "Warning",
+    message: "Perform a thermal-expansion and flexibility check.",
+    reason:
+      "Operating temperatures above 120 °C can generate significant thermal growth and loads on supports and equipment nozzles.",
+    action:
+      "Run a flexibility/stress review and confirm supports and anchors accommodate thermal movement.",
+  },
+  "rule-6-support-spacing": {
+    id: "rule-6-support-spacing",
+    severity: "Information",
+    message: "Review pipe-support spacing and support locations.",
+    reason:
+      "Longer line runs increase the importance of correctly spaced supports to control sag and vibration.",
+    action:
+      "Review support spacing and locations for the selected pipe size, spec and service.",
+  },
+  "rule-7-suction-reducer": {
+    id: "rule-7-suction-reducer",
+    severity: "Warning",
+    message:
+      "Review reducer selection. An eccentric reducer may be required to avoid vapour pockets.",
+    reason:
+      "A concentric reducer on a pump suction line can trap vapour at the top of the reduction, contributing to cavitation risk.",
+    action:
+      "Replace the concentric reducer with an eccentric reducer (flat side up) on the suction line where appropriate.",
+  },
+  "rule-8-psv": {
+    id: "rule-8-psv",
+    severity: "Critical",
+    message:
+      "Verify PSV discharge routing, back pressure, safe outlet location and maintenance access.",
+    reason:
+      "Pressure safety valves require a verified discharge path, acceptable back pressure and a safe outlet location.",
+    action:
+      "Confirm discharge routing, back-pressure limits, outlet location and maintenance access with the safety-in-design review.",
+  },
+  "rule-9-drain": {
+    id: "rule-9-drain",
+    severity: "Information",
+    message: "Check whether a low-point drain is required.",
+    reason:
+      "Low points without a drain can trap liquid, complicating draining, cleaning or maintenance.",
+    action: "Confirm whether a low-point drain is needed for this line.",
+  },
+  "rule-10-vent": {
+    id: "rule-10-vent",
+    severity: "Information",
+    message: "Check whether a high-point vent is required.",
+    reason:
+      "High points without a vent can trap gas or vapour, complicating filling, venting or maintenance.",
+    action: "Confirm whether a high-point vent is needed for this line.",
+  },
+};
+
+import {
+  AnalysisState,
+  ExportPayload,
+  LineComponent,
+  LineData,
+} from "@/types/engineering";
+
+export function buildExportPayload(
+  lineData: LineData,
+  components: LineComponent[],
+  analysis: AnalysisState | null
+): ExportPayload {
+  return {
+    lineData,
+    components,
+    analysis,
+    exportDate: new Date().toISOString(),
+  };
+}
+
+export function downloadLineExport(
+  lineData: LineData,
+  components: LineComponent[],
+  analysis: AnalysisState | null
+): void {
+  const payload = buildExportPayload(lineData, components, analysis);
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  const safeLineNumber = lineData.lineNumber.replace(/[^a-zA-Z0-9-_]/g, "_");
+  link.href = url;
+  link.download = `enghub-line-${safeLineNumber || "export"}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+import { AnalysisState, LineComponent, LineData } from "@/types/engineering";
+
+const STORAGE_KEY = "enghub.smart-line-builder.v1";
+
+export interface PersistedLine {
+  lineData: LineData;
+  components: LineComponent[];
+  analysis: AnalysisState | null;
+  savedAt: string;
+}
+
+export function saveLine(
+  lineData: LineData,
+  components: LineComponent[],
+  analysis: AnalysisState | null
+): void {
+  if (typeof window === "undefined") return;
+  const payload: PersistedLine = {
+    lineData,
+    components,
+    analysis,
+    savedAt: new Date().toISOString(),
+  };
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+export function loadLine(): PersistedLine | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PersistedLine;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSavedLine(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(STORAGE_KEY);
+}
