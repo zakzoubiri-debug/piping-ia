@@ -1,0 +1,829 @@
+import { ConnectionAccessory } from "@/types/engineering";
+
+const KIND_STYLES: Record<ConnectionAccessory["kind"], string> = {
+  Pipe: "w-10 border-t-2 border-steel-500",
+  Flange: "h-5 w-1.5 bg-steel-400",
+  Gasket: "h-3.5 w-1 bg-signal-warning",
+};
+
+export default function AccessoryNode({
+  accessory,
+}: {
+  accessory: ConnectionAccessory;
+}) {
+  if (accessory.kind === "Pipe") {
+    return (
+      <div className="flex items-center" title="Pipe">
+        <div className={KIND_STYLES.Pipe} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex flex-col items-center gap-0.5"
+      title={`${accessory.kind}`}
+    >
+      <div className={KIND_STYLES[accessory.kind]} />
+      <span className="text-[9px] leading-none text-steel-500">
+        {accessory.kind[0]}
+      </span>
+    </div>
+  );
+}
+
+"use client";
+
+import { AnalysisResult, AnalysisState, Severity } from "@/types/engineering";
+
+interface AnalysisPanelProps {
+  analysis: AnalysisState | null;
+}
+
+const SEVERITY_ORDER: Severity[] = [
+  "Critical",
+  "Warning",
+  "Information",
+  "Passed",
+];
+
+const SEVERITY_STYLES: Record<Severity, { icon: string; color: string; label: string }> = {
+  Critical: { icon: "▲", color: "text-signal-critical", label: "Critical" },
+  Warning: { icon: "!", color: "text-signal-warning", label: "Warning" },
+  Information: { icon: "i", color: "text-signal-info", label: "Information" },
+  Passed: { icon: "✓", color: "text-signal-ok", label: "Passed" },
+};
+
+const STATUS_STYLES: Record<
+  NonNullable<AnalysisState["summary"]>["overallStatus"],
+  string
+> = {
+  Approved: "bg-signal-ok/15 text-signal-ok border-signal-ok/40",
+  "Review Required": "bg-signal-warning/15 text-signal-warning border-signal-warning/40",
+  "Critical Issues": "bg-signal-critical/15 text-signal-critical border-signal-critical/40",
+};
+
+function ResultCard({ result }: { result: AnalysisResult }) {
+  const style = SEVERITY_STYLES[result.severity];
+  return (
+    <div className="rounded border border-border bg-surface p-3">
+      <div className="mb-1 flex items-start gap-2">
+        <span
+          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[10px] font-bold ${style.color}`}
+        >
+          {style.icon}
+        </span>
+        <p className="text-sm font-medium text-steel-50">{result.message}</p>
+      </div>
+      <div className="ml-6 flex flex-col gap-1 text-xs text-steel-400">
+        <p>
+          <span className="font-medium text-steel-300">Component: </span>
+          {result.relatedComponent}
+        </p>
+        <p>
+          <span className="font-medium text-steel-300">Reason: </span>
+          {result.reason}
+        </p>
+        <p>
+          <span className="font-medium text-steel-300">Suggested action: </span>
+          {result.action}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function AnalysisPanel({ analysis }: AnalysisPanelProps) {
+  return (
+    <aside className="flex h-full w-96 shrink-0 flex-col border-l border-border bg-panel">
+      <div className="border-b border-border px-4 py-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-steel-300">
+          Engineering Analysis
+        </h2>
+      </div>
+
+      {!analysis ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+          <span className="text-2xl text-steel-600">⌗</span>
+          <p className="text-sm text-steel-400">
+            Click Analyze Line to review the current configuration.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col overflow-y-auto">
+          <div className="border-b border-border px-4 py-3">
+            <div
+              className={`mb-3 rounded border px-3 py-2 text-center text-sm font-semibold ${
+                STATUS_STYLES[analysis.summary.overallStatus]
+              }`}
+            >
+              {analysis.summary.overallStatus}
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="rounded border border-border bg-surface py-2">
+                <p className="text-base font-semibold text-steel-50">
+                  {analysis.summary.totalChecks}
+                </p>
+                <p className="text-[10px] text-steel-500">Checks</p>
+              </div>
+              <div className="rounded border border-border bg-surface py-2">
+                <p className="text-base font-semibold text-signal-critical">
+                  {analysis.summary.critical}
+                </p>
+                <p className="text-[10px] text-steel-500">Critical</p>
+              </div>
+              <div className="rounded border border-border bg-surface py-2">
+                <p className="text-base font-semibold text-signal-warning">
+                  {analysis.summary.warnings}
+                </p>
+                <p className="text-[10px] text-steel-500">Warnings</p>
+              </div>
+              <div className="rounded border border-border bg-surface py-2">
+                <p className="text-base font-semibold text-signal-info">
+                  {analysis.summary.information}
+                </p>
+                <p className="text-[10px] text-steel-500">Info</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 px-4 py-4">
+            {SEVERITY_ORDER.map((severity) => {
+              const items = analysis.results.filter(
+                (r) => r.severity === severity
+              );
+              if (items.length === 0) return null;
+              return (
+                <div key={severity}>
+                  <p
+                    className={`mb-2 text-[11px] font-semibold uppercase tracking-wider ${SEVERITY_STYLES[severity].color}`}
+                  >
+                    {SEVERITY_STYLES[severity].label} ({items.length})
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {items.map((result, idx) => (
+                      <ResultCard key={`${result.ruleId}-${idx}`} result={result} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+"use client";
+
+import { useEffect, useState } from "react";
+import { ConnectionType, LineComponent } from "@/types/engineering";
+
+const CONNECTION_TYPES: ConnectionType[] = [
+  "Flanged",
+  "Butt Weld",
+  "Socket Weld",
+  "Threaded",
+  "Wafer",
+];
+
+interface ComponentPropertiesModalProps {
+  component: LineComponent;
+  onClose: () => void;
+  onSave: (updated: LineComponent) => void;
+}
+
+export default function ComponentPropertiesModal({
+  component,
+  onClose,
+  onSave,
+}: ComponentPropertiesModalProps) {
+  const [draft, setDraft] = useState<LineComponent>(component);
+
+  useEffect(() => {
+    setDraft(component);
+  }, [component]);
+
+  const update = <K extends keyof LineComponent>(
+    key: K,
+    value: LineComponent[K]
+  ) => setDraft((prev) => ({ ...prev, [key]: value }));
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-lg border border-border bg-surface shadow-card"
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="text-sm font-semibold text-steel-50">
+            Component Properties
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-steel-400 hover:text-steel-100"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 px-5 py-4">
+          <label className="col-span-1 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">Tag</span>
+            <input
+              value={draft.tag}
+              onChange={(e) => update("tag", e.target.value)}
+              className="rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 focus:outline-none"
+            />
+          </label>
+
+          <label className="col-span-1 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">
+              Component Type
+            </span>
+            <input
+              value={draft.name}
+              onChange={(e) => update("name", e.target.value)}
+              className="rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 focus:outline-none"
+            />
+          </label>
+
+          <label className="col-span-2 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">
+              Connection Type
+            </span>
+            <select
+              value={draft.connectionType}
+              onChange={(e) =>
+                update("connectionType", e.target.value as ConnectionType)
+              }
+              className="rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 focus:outline-none"
+            >
+              {CONNECTION_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="col-span-1 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">Size</span>
+            <input
+              value={draft.size}
+              onChange={(e) => update("size", e.target.value)}
+              placeholder="e.g. DN100"
+              className="rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 placeholder:text-steel-500 focus:outline-none"
+            />
+          </label>
+
+          <label className="col-span-1 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">
+              Pressure Class
+            </span>
+            <input
+              value={draft.pressureClass}
+              onChange={(e) => update("pressureClass", e.target.value)}
+              placeholder="e.g. PN16"
+              className="rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 placeholder:text-steel-500 focus:outline-none"
+            />
+          </label>
+
+          <label className="col-span-2 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">
+              Manufacturer
+            </span>
+            <input
+              value={draft.manufacturer}
+              onChange={(e) => update("manufacturer", e.target.value)}
+              placeholder="e.g. Generic Co."
+              className="rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 placeholder:text-steel-500 focus:outline-none"
+            />
+          </label>
+
+          <label className="col-span-2 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">Notes</span>
+            <textarea
+              value={draft.notes}
+              onChange={(e) => update("notes", e.target.value)}
+              rows={3}
+              className="resize-none rounded border border-border bg-surfaceAlt px-2 py-1.5 text-sm text-steel-50 focus:outline-none"
+            />
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-steel-200 hover:bg-surfaceAlt"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(draft)}
+            className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-panel hover:brightness-110"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+"use client";
+
+import { useMemo, useState } from "react";
+import { CATEGORY_ORDER, COMPONENT_LIBRARY } from "@/lib/component-library";
+import { ComponentDefinition } from "@/types/engineering";
+
+interface ComponentSidebarProps {
+  onAddComponent: (definition: ComponentDefinition) => void;
+}
+
+export default function ComponentSidebar({
+  onAddComponent,
+}: ComponentSidebarProps) {
+  const [query, setQuery] = useState("");
+
+  const grouped = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const filtered = normalized
+      ? COMPONENT_LIBRARY.filter((c) =>
+          c.name.toLowerCase().includes(normalized)
+        )
+      : COMPONENT_LIBRARY;
+
+    return CATEGORY_ORDER.map((category) => ({
+      category,
+      items: filtered.filter((c) => c.category === category),
+    })).filter((group) => group.items.length > 0);
+  }, [query]);
+
+  return (
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-panel">
+      <div className="border-b border-border px-4 py-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-steel-300">
+          Components
+        </h2>
+        <div className="mt-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search components..."
+            className="w-full rounded border border-border bg-surface px-2.5 py-1.5 text-sm text-steel-50 placeholder:text-steel-500 focus:border-steel-400 focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-2 py-2">
+        {grouped.length === 0 && (
+          <p className="px-2 py-6 text-center text-xs text-steel-500">
+            No components match &ldquo;{query}&rdquo;.
+          </p>
+        )}
+
+        {grouped.map((group) => (
+          <div key={group.category} className="mb-3">
+            <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-steel-500">
+              {group.category}
+            </p>
+            <div className="flex flex-col gap-1">
+              {group.items.map((item) => (
+                <div
+                  key={item.typeId}
+                  className="group flex items-center gap-2 rounded px-2 py-1.5 transition hover:bg-surface"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border bg-surfaceAlt text-sm text-steel-200">
+                    {item.icon}
+                  </span>
+                  <span className="flex-1 truncate text-sm text-steel-100">
+                    {item.name}
+                  </span>
+                  <button
+                    onClick={() => onAddComponent(item)}
+                    title={`Add ${item.name}`}
+                    className="shrink-0 rounded border border-border bg-surface px-2 py-0.5 text-xs font-medium text-steel-200 opacity-0 transition group-hover:opacity-100 hover:border-accent hover:text-accent"
+                  >
+                    Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+"use client";
+
+import { useState } from "react";
+import { ConnectionAccessory, LineComponent } from "@/types/engineering";
+import { CATEGORY_ORDER, COMPONENT_LIBRARY } from "@/lib/component-library";
+import LineComponentCard from "./LineComponentCard";
+import AccessoryNode from "./AccessoryNode";
+
+interface LineCanvasProps {
+  components: LineComponent[];
+  onOpenComponent: (index: number) => void;
+  onRemoveComponent: (index: number) => void;
+  onMoveComponent: (index: number, direction: -1 | 1) => void;
+  onDuplicateComponent: (index: number) => void;
+  onAddComponentByTypeId: (typeId: string) => void;
+  onClearLine: () => void;
+  onResetDemo: () => void;
+  onAnalyze: () => void;
+}
+
+/**
+ * Builds the accessory sequence between two adjacent components. Flanged
+ * components get a flange + gasket on the side facing the pipe run; butt
+ * weld (and other) connection types are shown as a plain pipe segment.
+ */
+function buildConnector(
+  left: LineComponent,
+  right: LineComponent
+): ConnectionAccessory[] {
+  const segment: ConnectionAccessory[] = [];
+  let n = 0;
+  const key = `${left.instanceId}-${right.instanceId}`;
+  const push = (kind: ConnectionAccessory["kind"]) => {
+    segment.push({ id: `${key}-${n++}`, kind, label: kind });
+  };
+
+  if (left.connectionType === "Flanged") {
+    push("Gasket");
+    push("Flange");
+  }
+  push("Pipe");
+  if (right.connectionType === "Flanged") {
+    push("Flange");
+    push("Gasket");
+  }
+  return segment;
+}
+
+export default function LineCanvas({
+  components,
+  onOpenComponent,
+  onRemoveComponent,
+  onMoveComponent,
+  onDuplicateComponent,
+  onAddComponentByTypeId,
+  onClearLine,
+  onResetDemo,
+  onAnalyze,
+}: LineCanvasProps) {
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddValue, setQuickAddValue] = useState(
+    COMPONENT_LIBRARY[0].typeId
+  );
+
+  return (
+    <section className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-panel px-5 py-2.5">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-steel-300">
+          Piping Line
+        </h2>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <button
+              onClick={() => setQuickAddOpen((v) => !v)}
+              className="rounded border border-border bg-surface px-3 py-1.5 text-xs font-medium text-steel-100 transition hover:border-steel-500 hover:bg-surfaceAlt"
+            >
+              + Add Component
+            </button>
+            {quickAddOpen && (
+              <div className="absolute right-0 top-9 z-10 w-56 rounded border border-border bg-surface p-2 shadow-card">
+                <select
+                  value={quickAddValue}
+                  onChange={(e) => setQuickAddValue(e.target.value)}
+                  className="mb-2 w-full rounded border border-border bg-surfaceAlt px-2 py-1.5 text-xs text-steel-50 focus:outline-none"
+                >
+                  {CATEGORY_ORDER.map((category) => (
+                    <optgroup label={category} key={category}>
+                      {COMPONENT_LIBRARY.filter(
+                        (c) => c.category === category
+                      ).map((c) => (
+                        <option key={c.typeId} value={c.typeId}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    onAddComponentByTypeId(quickAddValue);
+                    setQuickAddOpen(false);
+                  }}
+                  className="w-full rounded bg-accent px-2 py-1.5 text-xs font-semibold text-panel transition hover:brightness-110"
+                >
+                  Add to line
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClearLine}
+            className="rounded border border-border bg-surface px-3 py-1.5 text-xs font-medium text-steel-100 transition hover:border-signal-critical hover:text-signal-critical"
+          >
+            Clear Line
+          </button>
+          <button
+            onClick={onResetDemo}
+            className="rounded border border-border bg-surface px-3 py-1.5 text-xs font-medium text-steel-100 transition hover:border-steel-500 hover:bg-surfaceAlt"
+          >
+            Reset Demo
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto bg-[radial-gradient(circle,#2c3742_1px,transparent_1px)] [background-size:18px_18px] px-5 py-8">
+        {components.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <span className="text-3xl text-steel-600">⌬</span>
+            <p className="text-sm font-medium text-steel-200">
+              This line is empty.
+            </p>
+            <p className="max-w-xs text-xs text-steel-500">
+              Add a component from the left sidebar or use &ldquo;Add
+              Component&rdquo; above to start building the piping line.
+            </p>
+          </div>
+        ) : (
+          <div className="flex min-w-max items-center gap-1">
+            {components.map((component, index) => (
+              <div key={component.instanceId} className="flex items-center">
+                <LineComponentCard
+                  component={component}
+                  isFirst={index === 0}
+                  isLast={index === components.length - 1}
+                  onOpen={() => onOpenComponent(index)}
+                  onRemove={() => onRemoveComponent(index)}
+                  onMoveLeft={() => onMoveComponent(index, -1)}
+                  onMoveRight={() => onMoveComponent(index, 1)}
+                  onDuplicate={() => onDuplicateComponent(index)}
+                />
+                {index < components.length - 1 && (
+                  <div className="flex items-center gap-1 px-1">
+                    {buildConnector(component, components[index + 1]).map(
+                      (accessory) => (
+                        <AccessoryNode key={accessory.id} accessory={accessory} />
+                      )
+                    )}
+                    <span className="text-steel-500">→</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-border bg-panel px-5 py-4">
+        <button
+          onClick={onAnalyze}
+          className="w-full rounded-md bg-accent py-3 text-sm font-semibold tracking-wide text-panel transition hover:brightness-110"
+        >
+          Analyze Line
+        </button>
+      </div>
+    </section>
+  );
+}
+
+"use client";
+
+import { LineComponent } from "@/types/engineering";
+
+interface LineComponentCardProps {
+  component: LineComponent;
+  isFirst: boolean;
+  isLast: boolean;
+  onOpen: () => void;
+  onRemove: () => void;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
+  onDuplicate: () => void;
+}
+
+export default function LineComponentCard({
+  component,
+  isFirst,
+  isLast,
+  onOpen,
+  onRemove,
+  onMoveLeft,
+  onMoveRight,
+  onDuplicate,
+}: LineComponentCardProps) {
+  return (
+    <div className="flex w-44 shrink-0 flex-col rounded-md border border-border bg-surface shadow-card">
+      <button
+        onClick={onOpen}
+        className="flex flex-col items-center gap-1 px-3 pt-3 pb-2 text-left"
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded border border-border bg-surfaceAlt text-base text-steel-100">
+          {component.icon}
+        </span>
+        <span className="mt-1 text-sm font-semibold text-steel-50">
+          {component.tag}
+        </span>
+        <span className="text-center text-[11px] leading-snug text-steel-300">
+          {component.name}
+        </span>
+        <span className="rounded-full border border-border bg-panel px-2 py-0.5 text-[10px] text-steel-400">
+          {component.connectionType}
+        </span>
+      </button>
+
+      <div className="flex items-center justify-between gap-1 border-t border-border px-2 py-1.5">
+        <button
+          onClick={onMoveLeft}
+          disabled={isFirst}
+          title="Move left"
+          className="flex h-6 w-6 items-center justify-center rounded text-steel-400 transition hover:bg-surfaceAlt hover:text-steel-100 disabled:opacity-25 disabled:hover:bg-transparent"
+        >
+          ←
+        </button>
+        <button
+          onClick={onDuplicate}
+          title="Duplicate"
+          className="flex h-6 w-6 items-center justify-center rounded text-steel-400 transition hover:bg-surfaceAlt hover:text-steel-100"
+        >
+          ⧉
+        </button>
+        <button
+          onClick={onRemove}
+          title="Remove"
+          className="flex h-6 w-6 items-center justify-center rounded text-signal-critical transition hover:bg-surfaceAlt"
+        >
+          ✕
+        </button>
+        <button
+          onClick={onMoveRight}
+          disabled={isLast}
+          title="Move right"
+          className="flex h-6 w-6 items-center justify-center rounded text-steel-400 transition hover:bg-surfaceAlt hover:text-steel-100 disabled:opacity-25 disabled:hover:bg-transparent"
+        >
+          →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+"use client";
+
+import { LineData } from "@/types/engineering";
+
+interface LineInformationFormProps {
+  lineData: LineData;
+  onChange: (field: keyof LineData, value: string) => void;
+}
+
+interface FieldConfig {
+  key: keyof LineData;
+  label: string;
+  type?: "text" | "select";
+  options?: string[];
+}
+
+const FIELDS: FieldConfig[] = [
+  { key: "lineNumber", label: "Line Number" },
+  { key: "fromEquipment", label: "From Equipment" },
+  { key: "toEquipment", label: "To Equipment" },
+  { key: "fluid", label: "Fluid" },
+  { key: "pipeSpec", label: "Pipe Specification" },
+  { key: "nominalDiameter", label: "Nominal Diameter" },
+  { key: "pressure", label: "Pressure" },
+  { key: "temperature", label: "Temperature" },
+  { key: "lineLength", label: "Line Length" },
+  { key: "insulation", label: "Insulation", type: "select", options: ["Yes", "No"] },
+];
+
+export default function LineInformationForm({
+  lineData,
+  onChange,
+}: LineInformationFormProps) {
+  return (
+    <section className="border-b border-border bg-panel px-5 py-4">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-steel-300">
+        Line Information
+      </h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {FIELDS.map((field) => (
+          <label key={field.key} className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-steel-400">
+              {field.label}
+            </span>
+            {field.type === "select" ? (
+              <select
+                value={lineData[field.key]}
+                onChange={(e) => onChange(field.key, e.target.value)}
+                className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-steel-50 focus:border-steel-400 focus:outline-none"
+              >
+                {field.options?.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={lineData[field.key]}
+                onChange={(e) => onChange(field.key, e.target.value)}
+                className="rounded border border-border bg-surface px-2 py-1.5 text-sm text-steel-50 focus:border-steel-400 focus:outline-none"
+              />
+            )}
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+"use client";
+
+import { ToastMessage } from "@/types/engineering";
+
+const VARIANT_STYLES: Record<ToastMessage["variant"], string> = {
+  success: "border-signal-ok/40 bg-signal-ok/10 text-signal-ok",
+  error: "border-signal-critical/40 bg-signal-critical/10 text-signal-critical",
+  info: "border-signal-info/40 bg-signal-info/10 text-signal-info",
+};
+
+export default function Toast({ toasts }: { toasts: ToastMessage[] }) {
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`pointer-events-auto min-w-[220px] rounded border px-4 py-2.5 text-sm font-medium shadow-card ${VARIANT_STYLES[toast.variant]}`}
+        >
+          {toast.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+"use client";
+
+interface TopbarProps {
+  projectName: string;
+  onSave: () => void;
+  onExport: () => void;
+}
+
+export default function Topbar({ projectName, onSave, onExport }: TopbarProps) {
+  return (
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-panel px-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded bg-accent text-sm font-bold text-panel">
+          EH
+        </div>
+        <div className="flex flex-col leading-none">
+          <span className="text-sm font-semibold tracking-wide text-steel-50">
+            EngHub
+          </span>
+          <span className="text-[11px] text-steel-400">Smart Line Builder</span>
+        </div>
+        <div className="ml-4 hidden items-center gap-2 rounded border border-border bg-surface px-3 py-1.5 sm:flex">
+          <span className="h-1.5 w-1.5 rounded-full bg-signal-ok" />
+          <span className="text-xs text-steel-200">{projectName}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onSave}
+          className="rounded border border-border bg-surface px-3 py-1.5 text-xs font-medium text-steel-100 transition hover:border-steel-500 hover:bg-surfaceAlt"
+        >
+          Save
+        </button>
+        <button
+          onClick={onExport}
+          className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-panel transition hover:brightness-110"
+        >
+          Export
+        </button>
+        <div
+          title="Demo user"
+          className="ml-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surfaceAlt text-xs font-semibold text-steel-200"
+        >
+          DU
+        </div>
+      </div>
+    </header>
+  );
+}
